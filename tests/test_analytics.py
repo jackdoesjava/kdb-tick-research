@@ -128,6 +128,18 @@ def test_taker_counts_onsets_only(hdb):
     assert np.isclose(got["s"], pnl.sum())
 
 
+def test_taker_with_no_signals(hdb):
+    got = hdb(f".fx.taker[.fx.grid[{FXDAY};`EURJPY`EURUSD`USDJPY`mul;0D00:00:00.1;0D10:00;0D10:05;0D00:01];1e6;1;5]").py()
+    assert got == {"n": 0, "s": 0.0, "s2": 0.0}
+
+
+def test_fx_day_runs(hdb):
+    r = hdb(f".fx.day[{FXDAY};`EURJPY`EURUSD`USDJPY`mul]")
+    r = dict(zip(r.keys().py(), r.values()))
+    assert len(r["closure"].pd()) == 9
+    assert len(r["taker"].pd()) == 5 * 4 * 3
+
+
 def test_markouts(hdb):
     q = hdb(f"select time,mid:0.5*bid+ask from quote where date={SPYDAY}").pd()
     t = hdb(f"select time,price,side from trade where date={SPYDAY}, side in `B`S").pd()

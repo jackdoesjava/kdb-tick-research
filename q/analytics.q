@@ -55,21 +55,29 @@
   t:update inb:(neg l) xprev cb, ina:(neg l) xprev ca, outb:(neg l+h) xprev cb, outa:(neg l+h) xprev ca from g;
   t:update buy:(not null gap)&gap<neg th, sell:(not null gap)&gap>th from t;
   t:update buy:buy>prev buy, sell:sell>prev sell from t;
+  sig:where t[`buy]|t`sell;
+  / no signals at all happens at the higher thresholds; the scan below would
+  / hand back an untyped empty list, so return zeros straight away
+  if[not count sig; :`n`s`s2!(0;0f;0f)];
   / walk through the signals keeping the last one taken; a new one is taken
   / once the previous trade (l+h steps) has closed
-  i:distinct {[w;a;b] $[b>=a+w;b;a]}[l+h]\[neg l+h; where t[`buy]|t`sell];
+  i:distinct {[w;a;b] $[b>=a+w;b;a]}[l+h]\[neg l+h; sig];
   t:t i;
   p:?[t`buy; 1e4*log t[`outb]%t`ina; 1e4*log t[`inb]%t`outa];
   p:p where not null p;
   `n`s`s2!(count p;sum p;sum p*p)}
 
-/ Study settings, fixed before running anything on the real data
+/ Study settings. Everything here was fixed before running the study on the
+/ real data, except the taker thresholds: they started as 0.5-5bp, but one
+/ day in March showed the EURJPY gap almost never gets past 2bp, so they
+/ were moved down. That's a choice made on Jan-Jun data, which is the half
+/ used for picking settings, so the Jul-Dec test is still clean.
 .fx.cfg:`step`start`end`maxage`ks`ths`lats`holds!(
   0D00:00:00.1;                   / 100ms grid, about the spacing of Dukascopy quotes
   0D07:00; 0D17:00;               / London open to New York lunchtime, UTC
   0D00:01;                        / stale-quote cut-off, same as the gap rule in checks.q
   1 2 5 10 20 50 100 300 600;     / horizons in grid steps, 0.1s to 60s
-  0.5 1 2 3 5f;                   / taker thresholds, bps
+  0.25 0.5 0.75 1 1.5f;           / taker thresholds, bps
   0 1 5 10;                       / latency: 0, 0.1, 0.5, 1s
   10 50 300)                      / holding period: 1, 5, 30s
 
