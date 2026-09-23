@@ -39,11 +39,17 @@
   t:select from t where not null x, not null yc, not null ys;
   exec n:count x, sx:sum x, sxx:sum x*x, syc:sum yc, sxyc:sum x*yc, sys:sum ys, sxys:sum x*ys from t}
 
-/ Size of the gap, and how often it's bigger than the cross's half-spread
+/ Size of the gap, and how often it's bigger than the cross's half-spread.
+/ Also sums for the lag-1 autocorrelation of one-step returns of the quoted
+/ and synthetic mids: if one of them reverses more (quote noise bouncing
+/ back), part of what looks like it "closing the gap" is just that.
 .fx.gapstats:{[g]
+  g:update rc:1e4*log cm%prev cm, rs:1e4*log sm%prev sm from g;
+  g:update prc:prev rc, prs:prev rs from g;
   select n:count gap, sgap:sum gap, sgap2:sum gap*gap, sabs:sum abs gap,
-    shs:sum 1e4*0.5*(ca-cb)%cm, nwide:sum (abs gap)>1e4*0.5*(ca-cb)%cm
-    from g where not null gap}
+    shs:sum 1e4*0.5*(ca-cb)%cm, nwide:sum (abs gap)>1e4*0.5*(ca-cb)%cm,
+    rcc:sum rc*prc, rc2:sum rc*rc, rss:sum rs*prs, rs2:sum rs*rs
+    from g where not null gap, not null prc, not null prs}
 
 / Taker test on the cross alone. When the cross is more than th bps cheap
 / against the synthetic, buy it at the ask l steps later (latency) and sell
