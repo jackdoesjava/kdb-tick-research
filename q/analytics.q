@@ -115,12 +115,15 @@
   q:select from q where differ flip (bid;ask;bsize;asize);
   q:update mid:0.5*bid+ask, spr:ask-bid, imb:(bsize-asize)%bsize+asize from q;
   / runs of constant mid. m holds one mid per run in order and r counts from
-  / 1, so m r is the next run's mid, and null after the last run
-  q:update r:sums differ mid from q;
-  m:exec mid from q where differ mid;
+  / 1, so m r is the next run's mid, and null after the last run. st marks
+  / the first row of each run so mid moves can be counted without counting
+  / a run twice when it spans two buckets
+  q:update st:differ mid from q;
+  q:update r:sums st from q;
+  m:exec mid from q where st;
   q:update nm:m r from q;
   q:select from q where not null nm, spr within 0.005 0.015;
-  select n:count i, up:sum nm>mid, moves:count distinct r by blk:0D00:05 xbar time, bkt:9&floor 5*imb+1 from q}
+  select n:count i, up:sum nm>mid, moves:sum st by blk:0D00:05 xbar time, bkt:9&floor 5*imb+1 from q}
 
 / Order flow imbalance (Cont, Kukanov & Stoikov 2014). Each book update
 / contributes e = eb - ea, where eb is the change in bid-side demand and ea
