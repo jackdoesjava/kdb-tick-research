@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+
+# market data is licensed, so none of it goes in the repo
+data/
+db/
+logs/
+
+*.lic

@@ -1,0 +1,7 @@
+pykx>=4.1
+databento>=0.87
+numpy
+pandas
+pyarrow
+matplotlib
+pytest
