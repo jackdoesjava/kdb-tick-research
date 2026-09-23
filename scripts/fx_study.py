@@ -30,6 +30,7 @@ TRIANGLES = {
     "EURGBP": ["EURGBP", "EURUSD", "GBPUSD", "div"],
 }
 SPLIT = pd.Timestamp("2025-07-01")
+GRID_POINTS = 360_000   # 07:00-17:00 every 100ms
 OUT = ROOT / "results"
 
 
@@ -41,6 +42,11 @@ def collect(hdb, tri):
         r = hdb(".fx.day", kx.DateAtom(d), kx.SymbolVector(tri))
         # indexing a q dictionary by key doesn't work in pykx's unlicensed mode
         r = dict(zip(r.keys().py(), r.values()))
+        # skip holidays (Christmas, New Year) where hardly anyone quotes:
+        # need at least half the grid points to have fresh quotes on all three
+        if r["gap"].pd()["n"].iloc[0] < 0.5 * GRID_POINTS:
+            print("  skipping", d)
+            continue
         for frames, key in [(cl, "closure"), (gp, "gap"), (tk, "taker")]:
             f = r[key].pd()
             f["date"] = pd.Timestamp(d)
