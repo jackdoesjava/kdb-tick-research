@@ -2,8 +2,8 @@
 
 Brings up tickerplant (logging to logs/tp), RDB and the checks process,
 replays 2021-01-28 through the TP in one-minute windows, ends the day and
-waits for the RDB to write db/2021.01.28. The checks' alerts are saved to
-results/checks_spy.csv.
+waits for the RDB to write db/2021.01.28. Alert counts from the checks
+process, by hour (UTC) and rule, go to results/checks_spy.csv.
 """
 
 import sys
@@ -43,7 +43,8 @@ def main():
 
         chk = connect(CHK)
         wait_for_day(chk, ".chk.ended", DAY)
-        chk("alerts").pd().to_csv(ROOT / "results" / "checks_spy.csv", index=False)
+        counts = chk("select n:count i by hour:`hh$time, rule from alerts").pd().reset_index()
+        counts.to_csv(ROOT / "results" / "checks_spy.csv", index=False)
         print(chk("select n:count i by rule from alerts").pd())
 
 
