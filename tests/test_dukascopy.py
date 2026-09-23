@@ -46,7 +46,12 @@ def test_month_in_url_is_zero_based():
 
 
 def test_weekend_hours_skipped():
-    assert dk.hours_of(date(2025, 3, 15)) == []            # Saturday
-    sunday = dk.hours_of(date(2025, 3, 16))
+    assert dk.hours_of(date(2025, 3, 15), None) == []            # Saturday
+    sunday = dk.hours_of(date(2025, 3, 16), None)
     assert [h.hour for h in sunday] == [20, 21, 22, 23]
-    assert len(dk.hours_of(date(2025, 3, 14))) == 24        # Friday kept whole
+    assert len(dk.hours_of(date(2025, 3, 14), None)) == 24        # Friday kept whole
+
+
+def test_session_hours():
+    assert [h.hour for h in dk.hours_of(date(2025, 3, 12))] == list(range(7, 17))
+    assert dk.hours_of(date(2025, 3, 16)) == []                  # no session on Sunday

@@ -2,9 +2,10 @@
 
     python scripts/download_fx.py 2025-01-01 2025-12-31 [threads]
 
-Around 32k small files for five pairs over a year once weekends are skipped.
-Individual requests are slow (often 15-30s) and the server starts returning
-503s if pushed, so expect a few hours. The cache makes it safe to stop and
+Only the 07:00-17:00 UTC session is fetched (see dukascopy.SESSION), which
+is about 13k files for five pairs over a year. Individual requests are slow
+(often 15-30s) and the server starts returning 503s if pushed with more than
+a few threads, so expect a few hours. The cache makes it safe to stop and
 rerun.
 """
 
@@ -30,15 +31,20 @@ def main(start, end, workers=3):
     print(f"{len(jobs)} hours in range, {len(todo)} still to fetch")
 
     session = requests.Session()
-    done = 0
+    done = failed = 0
     with ThreadPoolExecutor(workers) as pool:
         futures = [pool.submit(dk.fetch_hour, s, h, ROOT, session) for s, h in todo]
         for f in as_completed(futures):
-            f.result()
+            try:
+                f.result()
+            except RuntimeError as e:
+                # keep going, a rerun picks up whatever is missing
+                failed += 1
+                print(f"  {e}", flush=True)
             done += 1
             if done % 1000 == 0:
                 print(f"  {done}/{len(todo)}", flush=True)
-    print("done")
+    print(f"done, {failed} failed" + (" (run again to retry them)" if failed else ""))
 
 
 if __name__ == "__main__":

@@ -95,26 +95,35 @@ def fetch_hour(sym, hour, root, session=None, retries=8):
     raise RuntimeError(f"could not download {sym} {hour:%Y-%m-%d %H}h")
 
 
-def hours_of(day):
-    """UTC hours of a date when spot FX can be trading.
+# The study only looks at 07:00-17:00 UTC (London open to New York lunch),
+# and Dukascopy throttles hard enough that a full year of 24h days for five
+# pairs takes most of a day to download, so by default only those hours are
+# fetched and loaded.
+SESSION = (7, 17)
 
-    The market shuts from Friday evening until Sunday evening (New York
-    close, 21:00 or 22:00 UTC depending on daylight saving). Saturday and
-    most of Sunday are skipped so we don't make thousands of pointless
-    requests; Friday is kept whole to be safe either side of the DST change.
+
+def hours_of(day, session=SESSION):
+    """UTC hours of a date to fetch: the session hours on weekdays.
+
+    Spot FX shuts from Friday evening to Sunday evening, so weekends are
+    skipped. With session=None it's every hour the market can be open
+    (Sunday from 20:00, Friday kept whole to be safe around DST changes).
     """
     start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
     wd = day.weekday()  # Monday = 0
-    if wd == 5:
-        return []
-    first = 20 if wd == 6 else 0
-    return [start + timedelta(hours=h) for h in range(first, 24)]
+    if session is not None:
+        first, last = session if wd < 5 else (0, 0)
+    elif wd == 5:
+        first, last = 0, 0
+    else:
+        first, last = (20 if wd == 6 else 0), 24
+    return [start + timedelta(hours=h) for h in range(first, last)]
 
 
-def load_day(sym, day, root):
-    """All cached ticks for one symbol on one UTC date, in time order."""
+def load_day(sym, day, root, session=SESSION):
+    """Cached ticks for one symbol on one UTC date, in time order."""
     frames = [empty_frame()]
-    for hour in hours_of(day):
+    for hour in hours_of(day, session):
         path = cache_path(root, sym, hour)
         if not path.exists():
             raise FileNotFoundError(f"{path} missing, run scripts/download_fx.py first")
