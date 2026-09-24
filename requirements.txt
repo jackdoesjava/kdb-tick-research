@@ -3,6 +3,7 @@ databento>=0.87
 numpy
 pandas
 pyarrow
+requests
 matplotlib
 pytest
 tabulate
