@@ -122,9 +122,14 @@
 / ITCH prints one execution per resting order, so a single aggressive order
 / that sweeps several orders shows up as several fills with the same
 / timestamp. Those are put back together first, weighting price by size.
+
+/ aj on `sym`time needs an attribute on sym in the right table or it gets
+/ very slow (minutes instead of milliseconds on this day). A select of a
+/ whole partition keeps the p# from disk, but one that filters on sym drops
+/ it, so g# is set here rather than relied on.
 .spy.markouts:{[d;hz]
   t:0!select price:size wavg price, sum size by time,sym,side from trade where date=d, side in `B`S;
-  q:select time,sym,mid:0.5*bid+ask from quote where date=d;
+  q:update `g#sym from select time,sym,mid:0.5*bid+ask from quote where date=d;
   m0:exec mid from aj[`sym`time;update time:time-1 from t;q];
   s:?[`B=t`side;1f;-1f];
   mk:{[t;q;h] exec mid from aj[`sym`time;update time:time+h from t;q]}[t;q] each hz;
