@@ -37,7 +37,7 @@ OUT = ROOT / "results"
 def collect(hdb, tri):
     import pykx as kx
     fx_dates = hdb("exec date from (select n:count i by date from quote where sym=`EURUSD) where n>0").py()
-    cl, gp, tk = [], [], []
+    cl, iv, gp, tk = [], [], [], []
     for d in fx_dates:
         r = hdb(".fx.day", kx.DateAtom(d), kx.SymbolVector(tri))
         # indexing a q dictionary by key doesn't work in pykx's unlicensed mode
@@ -47,34 +47,45 @@ def collect(hdb, tri):
         if r["gap"].pd()["n"].iloc[0] < 0.5 * GRID_POINTS:
             print("  skipping", d)
             continue
-        for frames, key in [(cl, "closure"), (gp, "gap"), (tk, "taker")]:
+        for frames, key in [(cl, "closure"), (iv, "closureiv"), (gp, "gap"), (tk, "taker")]:
             f = r[key].pd()
             f["date"] = pd.Timestamp(d)
             frames.append(f)
-    return pd.concat(cl), pd.concat(gp), pd.concat(tk)
+    return pd.concat(cl), pd.concat(iv), pd.concat(gp), pd.concat(tk)
 
 
-def closure_table(cl, step_s):
-    """Slope of the cross's and the synthetic's move on the gap, per horizon."""
+def closure_table(cl, step_s, iv=False):
+    """Slope of the cross's and the synthetic's move on the gap, per horizon.
+
+    With iv=True the sums come from .fx.closureiv and the slopes use the
+    earlier gap z as an instrument: sum(z*y)/sum(z*x) instead of
+    sum(x*y)/sum(x*x), both centred within each day."""
     rows = []
     for k, g in cl.groupby("k"):
         g = g[g.n > 0]
-        cxx = stats.centred(g.n, g.sx, g.sx, g.sxx)
-        cxc = stats.centred(g.n, g.sx, g.syc, g.sxyc)
-        cxs = stats.centred(g.n, g.sx, g.sys, g.sxys)
-        blocks = np.c_[cxc, cxs, cxx]
+        if iv:
+            den = stats.centred(g.n, g.sz, g.sx, g.szx)
+            cxc = stats.centred(g.n, g.sz, g.syc, g.szyc)
+            cxs = stats.centred(g.n, g.sz, g.sys, g.szys)
+        else:
+            den = stats.centred(g.n, g.sx, g.sx, g.sxx)
+            cxc = stats.centred(g.n, g.sx, g.syc, g.sxyc)
+            cxs = stats.centred(g.n, g.sx, g.sys, g.sxys)
+        blocks = np.c_[cxc, cxs, den]
 
         def stat(t):
             bc, bs = t[0] / t[2], t[1] / t[2]
-            # cross share, legs share, and rho = autocorrelation of the gap at this lag
-            return np.array([-bc, bs, 1 + bc - bs])
+            # cross share, legs share, rho (the gap's autocorrelation at this
+            # lag) and legs minus cross
+            return np.array([-bc, bs, 1 + bc - bs, bs + bc])
 
         est, draws = stats.bootstrap(blocks, stat)
         lo, hi = stats.interval(draws)
         rows.append({"horizon_s": k * step_s, "days": len(g),
                      "cross": est[0], "cross_lo": lo[0], "cross_hi": hi[0],
                      "legs": est[1], "legs_lo": lo[1], "legs_hi": hi[1],
-                     "rho": est[2], "rho_lo": lo[2], "rho_hi": hi[2]})
+                     "rho": est[2], "rho_lo": lo[2], "rho_hi": hi[2],
+                     "legs-cross": est[3], "diff_lo": lo[3], "diff_hi": hi[3]})
     return pd.DataFrame(rows)
 
 
@@ -138,10 +149,11 @@ def main():
         step_s = hdb(".fx.cfg`step").py().total_seconds()
         for name, tri in TRIANGLES.items():
             print("running", name, flush=True)
-            cl, gp, tk = collect(hdb, tri)
+            cl, iv, gp, tk = collect(hdb, tri)
             closure[name] = closure_table(cl, step_s)
             h1 = closure_table(cl[cl.date < SPLIT], step_s)
             h2 = closure_table(cl[cl.date >= SPLIT], step_s)
+            ivt = closure_table(iv, step_s, iv=True)
             best, grid = taker_tables(tk)
             grid.to_csv(OUT / f"fx_taker_grid_{name}.csv", index=False)
 
@@ -151,8 +163,10 @@ def main():
                        md(pd.DataFrame([gap_summary(gp)])), "",
                        f"Half-life of the gap: {hl:.2f}s", "",
                        "Full year:", "", md(closure[name]), "",
-                       "Jan-Jun only:", "", md(h1[["horizon_s", "cross", "legs", "rho"]]), "",
-                       "Jul-Dec only:", "", md(h2[["horizon_s", "cross", "legs", "rho"]]), "",
+                       "Jan-Jun only:", "", md(h1[["horizon_s", "cross", "legs", "rho", "legs-cross", "diff_lo", "diff_hi"]]), "",
+                       "Jul-Dec only:", "", md(h2[["horizon_s", "cross", "legs", "rho", "legs-cross", "diff_lo", "diff_hi"]]), "",
+                       "Instrumented with the gap 1s earlier (only the lasting part of the gap):", "",
+                       md(ivt.drop(columns=["days"])), "",
                        "Taker test, settings picked on Jan-Jun, reported on Jul-Dec:", "",
                        md(best), ""]
     plot(closure)
