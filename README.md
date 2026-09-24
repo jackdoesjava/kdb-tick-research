@@ -243,6 +243,11 @@ tariff sell-off, and US CPI and payrolls days (12 February, 1 August,
   caused by a trade has the same timestamp as the trade, so the mid "at the
   trade" already includes the trade's impact. Markouts start from `time-1`
   instead.
+* `aj` on `` `sym`time `` wants `g#` or `p#` on sym in the right-hand table.
+  Selecting a whole day from the HDB keeps the `p#` from disk, but adding
+  ``sym=`SPY`` to the where clause drops it, and then the same join went from
+  milliseconds to not finishing in five minutes. `.spy.markouts` now sets
+  `g#` itself instead of relying on it.
 * q compares floats with a small tolerance and numpy doesn't. One test built
   prices with float arithmetic, so q saw two bids as equal where numpy didn't.
 * pykx sends a DataFrame whose index doesn't start at 0 as a keyed table, so
