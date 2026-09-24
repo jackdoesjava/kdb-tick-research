@@ -56,32 +56,33 @@ a replay behaves the same as live. The first four put the symbol on hold for
 
 Some timings on my machine: the SPY day (3.9M rows) goes through
 TP -> RDB + checks in about 6 seconds, about 600k rows/s with the TP log on.
-The FX year (about 84M quotes over 260 days) backfills in under two
-minutes, about 820k rows/s with the log off. The HDB is 5.3GB. The FX research query below
-builds a 360,000-point grid with three asof joins and runs everything for a
-date in about 0.4s.
+The FX year (about 84M quotes over 260 days) backfills in under two minutes,
+about 820k rows/s with the log off. The HDB is 5.3GB. The FX research query
+below builds a 360,000-point grid with three asof joins and runs everything
+for a date in about 0.4s.
 
 ## Study 1: FX crosses against their legs
 
 ### Data
 
-Dukascopy tick quotes for EUR/USD, USD/JPY, EUR/JPY, GBP/USD and
-EUR/GBP for 2025, 07:00-17:00 UTC (London open to New York lunchtime). Two
-triangles: EUR/JPY = EUR/USD x USD/JPY and EUR/GBP = EUR/USD / GBP/USD. This
-is one venue's quotes, not the interbank market, and they update roughly every
-100ms, so nothing faster than that can be seen.
+Dukascopy tick quotes for EUR/USD, USD/JPY, EUR/JPY, GBP/USD and EUR/GBP for
+2025, 07:00-17:00 UTC (London open to New York lunchtime). Two triangles:
+EUR/JPY = EUR/USD x USD/JPY and EUR/GBP = EUR/USD / GBP/USD. This is one
+venue's quotes, not the interbank market. A pair's quote changes every 0.35s
+(EUR/JPY) to 0.8s (EUR/GBP) on average and often sits still for more than a
+second, so nothing faster than that can be seen.
 
 ### Method
 
-For each day, the quotes of all three pairs are asof-joined onto
-a 100ms grid, and grid points where any pair hasn't updated for a minute are
-dropped (the feed was down, not the market quiet). The gap is the quoted cross
-mid over the synthetic mid from the legs, in basis points. At each horizon
-from 0.1s to 60s I regress the cross's move and the synthetic's move on the
-current gap, centred within each day. The two slopes say how much of a gap is
-closed by the cross moving and how much by the legs moving, and together they
-give the gap's autocorrelation. Confidence intervals resample whole days
-(2,000 draws). q reduces each day to a few sums, so only those cross to Python.
+For each day, the quotes of all three pairs are asof-joined onto a 100ms
+grid, and grid points where any pair hasn't updated for a minute are dropped
+(the feed was down, not the market quiet). The gap is the quoted cross mid
+over the synthetic mid from the legs, in basis points. At each horizon from
+0.1s to 60s I regress the cross's move and the synthetic's move on the current
+gap, centred within each day. The two slopes say how much of a gap is closed
+by the cross moving and how much by the legs moving, and together they give
+the gap's autocorrelation. Confidence intervals resample whole days (2,000
+draws). q reduces each day to a few sums, so only those cross to Python.
 
 ### Results
 
@@ -105,44 +106,68 @@ Fraction of the gap closed after 1s and 10s (95% CI):
 ![gap closure](results/fx_closure.png)
 
 What I expected was a cross that lags its legs and catches up within a few
-hundred milliseconds. That isn't what happens in this data. The gap is slow
-to go away (a half-life of about 4 seconds, and a quarter of it is still
-there after a minute), and at every horizon more of it is closed by the legs
-moving towards the cross than by the cross moving towards the legs. Below a
-second the difference is small, but it widens from there. That holds
-in both triangles and in both halves of the year (tables in
-`results/fx_study.md`). So the cross isn't simply a derived price here; when
-the two disagree, the legs do more of the adjusting.
+hundred milliseconds. That isn't what happens in this data. The gap's
+autocorrelation drops quickly at first (0.84 after 100ms, 0.64 after a
+second), then slowly: it passes a half at about 4 seconds and a quarter of the
+gap is still there after a minute.
 
-One boring explanation would be quote noise: the synthetic mid inherits
-flicker from two quotes, and flicker reverses, which would look like the legs
-closing the gap. For EUR/JPY the lag-1 autocorrelation of 100ms returns is
-positive for both the cross (+0.07) and the synthetic (+0.02), so that isn't
-what's going on there. For EUR/GBP both are negative and the synthetic more so
-(-0.10 against -0.05), so some of the legs' share in that triangle probably
-is noise.
+And at every horizon more of the gap is closed by the legs moving towards the
+cross than by the cross moving towards the legs. Over the full year the
+difference is small below a second and widens from there, and its confidence
+interval excludes zero everywhere except EUR/GBP at 100ms. It holds in both
+triangles and in both halves of the year, though for EUR/JPY in January-June
+the two shares are within noise of each other beyond a few seconds (0.27
+against 0.29 at 10s). Tables are in `results/fx_study.md`.
+
+One boring explanation would be quote noise. The synthetic mid inherits
+flicker from two quotes, flicker reverses, and a reversal in the legs looks
+like the legs closing the gap. The lag-1 autocorrelation of 100ms returns is
+lower for the synthetic than for the cross in both triangles (+0.02 against
++0.07 for EUR/JPY, -0.10 against -0.05 for EUR/GBP), which is what extra noise
+in the synthetic would look like, so some of the legs' share is probably noise.
+
+To separate the two I reran the regressions using the gap from one second
+earlier as an instrument for the gap now (`.fx.closureiv`). Noise that
+reverses within a second moves the gap now but can't be predicted from the gap
+a second ago, so this only measures how the lasting part of the gap closes.
+Much less closes quickly that way: about 0.12 after 1s for EUR/JPY, against
+0.36 in the table above, so most of the fast closing there is noise. But the
+legs still close more than the cross at every horizon, with the difference's
+interval above zero throughout. At 10s it's 0.23 against 0.14 for EUR/JPY
+(difference [0.02, 0.16]) and 0.28 against 0.16 for EUR/GBP ([0.06, 0.18]).
+The lasting part of the gap is also slower to go: its autocorrelation passes a
+half at about 30 seconds for EUR/JPY and 20 for EUR/GBP.
+
+So the cross isn't simply a derived price here. When the two disagree, the
+legs do more of the adjusting.
 
 ### Is it tradeable?
 
-No. I tested buying the cross at the ask when it was
-cheap against the synthetic (selling when rich) and closing at the bid after a
-holding period, one position at a time, with latency from 0 to 1s. The
-threshold and holding period were picked on January-June and only reported on
-July-December:
+No. I tested buying the cross at the ask when it was cheap against the
+synthetic (selling when rich) and closing at the bid after a holding period,
+one position at a time, with latency from 0 to 1s. The threshold and holding
+period were picked on January-June and only reported on July-December:
 
 | | latency | picked on H1 | H2 trades | H2 mean P&L per trade (bp) |
 |---|---:|---|---:|---|
-| EUR/JPY | 0 | 0.75bp, 30s | 11,310 | -0.40 [-0.45, -0.34] |
+| EUR/JPY | 0 | 0.75bp, 30s | 11,310 | -0.39 [-0.45, -0.34] |
 | EUR/JPY | 100ms | 0.25bp, 30s | 58,352 | -0.45 [-0.48, -0.43] |
 | EUR/GBP | 0 | 0.25bp, 30s | 73,523 | -0.67 [-0.69, -0.66] |
 | EUR/GBP | 100ms | 0.25bp, 30s | 73,396 | -0.74 [-0.75, -0.73] |
 
-Even with zero latency it loses most of the round-trip spread. Most of the time
-the gap is smaller than the half-spread, and when it isn't, the cross only
-covers part of it. So there's nothing here for a taker. The more useful
-point is the first result: a cross price built only by multiplying the legs
-would be throwing information away, because when the two disagree the legs
-tend to move towards the quoted cross more than the other way round.
+All four picks are the longest holding period I tried (30s). Even with zero
+latency it loses most of the round-trip spread. Most of the time the gap is
+smaller than the half-spread, and when it isn't, the cross only covers part of
+it. So there's nothing here for someone taking the cross. I didn't test
+trading the legs, which do more of the moving. That means paying the spread on
+two pairs instead of one, which here costs more than the cross's own spread,
+against a gap that is usually well under 1bp, so I don't expect it to pay,
+but it isn't tested.
+
+The more useful point is the first result: a cross price built only by
+multiplying the legs would be throwing information away, because when the two
+disagree the legs tend to move towards the quoted cross more than the other
+way round.
 
 ## Study 2: SPY order book, 28 January 2021
 
@@ -154,9 +179,9 @@ resample 5-minute blocks.
 
 ### Markouts
 
-What a passive fill was worth, marked to the mid at later
-horizons, from the market maker's side. Fills from one aggressive order that
-swept several resting orders are merged first.
+What a passive fill was worth, marked to the mid at later horizons, from the
+market maker's side. Fills from one aggressive order that swept several
+resting orders are merged first.
 
 | order size | orders | effective half-spread (bp) | 100ms | 1s | 60s |
 |---|---:|---|---|---|---|
@@ -164,28 +189,31 @@ swept several resting orders are merged first.
 | >500 shares | 1,788 | 0.32 [0.29, 0.36] | -0.16 [-0.22, -0.09] | -0.13 [-0.23, -0.03] | 0.02 [-0.34, 0.39] |
 
 Within 100ms the price has moved against the passive side by more than the
-half-spread it earned, and more so for big orders. Past 10 seconds the
+half-spread it earned, and more so for big orders. By 60 seconds the
 intervals are too wide to say anything.
 
 ![markouts](results/spy_markouts.png)
 
 ### Queue imbalance
 
-(bid size - ask size) / (bid size + ask size) at the
-touch, against the direction of the next mid move, with one-tick spreads only.
-Using the morning's curve to call the direction in the afternoon gets it right
-62.4% of the time [61.8%, 62.9%] over about 122,000 mid moves. The morning and
-afternoon curves are almost on top of each other.
+(bid size - ask size) / (bid size + ask size) at the touch, against the
+direction of the next mid move, with one-tick spreads only. Using the
+morning's curve to call the direction in the afternoon gets it right 62.4% of
+the time [61.8%, 62.9%]. That counts each of the 576,000 top-of-book updates
+as a call, and there are about 122,000 mid moves, so most moves are called
+several times. The morning and afternoon curves are almost on top of each
+other.
 
 ![queue imbalance](results/spy_queue_imbalance.png)
 
 ### Order flow imbalance
 
-OFI (Cont, Kukanov and Stoikov, 2014) explains
-about 60% of the variance of the mid move in the same 1-second bucket (0.59
-out of sample), close to what the paper reports. It explains nothing about the
-next bucket (out-of-sample R2 of -0.001 at 1s, -0.017 at 10s). It describes
-price moves, it doesn't forecast them.
+OFI (Cont, Kukanov and Stoikov, 2014) explains about 60% of the variance of
+the mid move in the same 1-second bucket (0.59 out of sample). The paper
+reports about 65% for 10-second buckets; here the 10-second figure is 0.55 on
+the morning and 0.58 out of sample. It explains nothing about the next bucket
+(out-of-sample R2 of -0.001 at 1s, -0.017 at 10s). It describes price moves,
+it doesn't forecast them.
 
 ## Sanity checks
 
@@ -193,11 +221,14 @@ On the SPY day almost everything fires outside regular hours: all 59 jumps
 are pre-market and all 7 feed gaps are after hours. The wide-spread alerts
 inside regular hours cluster in the first half hour after the open.
 
-On the FX year, the wide-spread rule fires on 115 of the 260 trading days. Most alerts
-come at 07:00 UTC as the session starts (30%) and at 12:00-13:00 UTC around US
-data releases (48%). The worst days are Good Friday (18 April), the day after
-Thanksgiving, Christmas Day, the tariff days of 10-11 April, and CPI and
-payrolls days. That's what you'd want the rule to catch. Counts are in
+On the FX year the wide-spread rule fires on 115 of the 260 trading days.
+Three holidays account for 41% of the alerts: Good Friday (18 April), the day
+after Thanksgiving (28 November) and Christmas Day, when hardly anyone is
+quoting. They're also why 30% of all alerts fall in the 07:00 UTC hour.
+Leaving them out, 78% come between 12:00 and 14:00 UTC, when US data comes
+out. After the holidays the worst days are 11 April, in the middle of the
+tariff sell-off, and US CPI and payrolls days (12 February, 1 August,
+7 March, 10 April). That's what you'd want the rule to catch. Counts are in
 `results/checks_*.csv`.
 
 ## Things that caught me out
