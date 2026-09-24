@@ -11,8 +11,9 @@ bytes, big-endian:
     float32 bid volume
 where point is 1e3 for JPY-quoted pairs and 1e5 for everything else.
 
-These are quotes from Dukascopy's own ECN, not the interbank market, and they
-arrive at roughly 100ms spacing, so nothing faster than that can be measured.
+These are quotes from Dukascopy's own ECN, not the interbank market. A
+pair's quote changes every 0.35-0.8s on average (EUR/JPY most often, EUR/GBP
+least), so nothing faster than that can be measured.
 """
 
 import lzma
