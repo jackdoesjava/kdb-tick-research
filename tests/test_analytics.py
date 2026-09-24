@@ -100,6 +100,20 @@ def test_closure_sums_match_numpy(hdb):
         assert np.isclose(got["sxx"], (x * x)[ok].sum())
 
 
+def test_closure_iv_sums_match_numpy(hdb):
+    g = hdb(f".fx.grid[{FXDAY};`EURJPY`EURUSD`USDJPY`mul;0D00:00:00.1;0D10:00;0D10:05;0D00:01]").pd()
+    k, lag = 10, 10
+    got = hdb(f".fx.closureiv[.fx.grid[{FXDAY};`EURJPY`EURUSD`USDJPY`mul;0D00:00:00.1;0D10:00;0D10:05;0D00:01];{k};{lag}]").py()
+    x = g["gap"].to_numpy()
+    z = np.r_[np.full(lag, np.nan), x[:-lag]]
+    yc = 1e4 * np.log(np.r_[g["cm"].to_numpy()[k:], np.full(k, np.nan)] / g["cm"].to_numpy())
+    ok = ~np.isnan(x) & ~np.isnan(z) & ~np.isnan(yc)
+    ok &= ~np.isnan(1e4 * np.log(np.r_[g["sm"].to_numpy()[k:], np.full(k, np.nan)] / g["sm"].to_numpy()))
+    assert got["n"] == ok.sum()
+    assert np.isclose(got["szx"], (z * x)[ok].sum())
+    assert np.isclose(got["szyc"], (z * yc)[ok].sum())
+
+
 def test_taker_counts_onsets_only(hdb):
     g = hdb(f".fx.grid[{FXDAY};`EURJPY`EURUSD`USDJPY`mul;0D00:00:00.1;0D10:00;0D10:05;0D00:01]").pd()
     th, lat, hold = 1.0, 1, 5
@@ -137,6 +151,7 @@ def test_fx_day_runs(hdb):
     r = hdb(f".fx.day[{FXDAY};`EURJPY`EURUSD`USDJPY`mul]")
     r = dict(zip(r.keys().py(), r.values()))
     assert len(r["closure"].pd()) == 9
+    assert len(r["closureiv"].pd()) == 9
     assert len(r["taker"].pd()) == 5 * 4 * 3
 
 

@@ -39,6 +39,16 @@
   t:select from t where not null x, not null yc, not null ys;
   exec n:count x, sx:sum x, sxx:sum x*x, syc:sum yc, sxyc:sum x*yc, sys:sum ys, sxys:sum x*ys from t}
 
+/ The same regressions, but using the gap `lag` steps earlier as an
+/ instrument for the gap now. Quote noise that reverses within that time
+/ moves the gap now but can't be predicted from the earlier gap, so this
+/ only measures how the lasting part of the gap closes. The slope is
+/ sum(z*y)/sum(z*x) after centring, instead of sum(x*y)/sum(x*x).
+.fx.closureiv:{[g;k;lag]
+  t:select x:gap, z:lag xprev gap, yc:1e4*log ((neg k) xprev cm)%cm, ys:1e4*log ((neg k) xprev sm)%sm from g;
+  t:select from t where not null x, not null z, not null yc, not null ys;
+  exec n:count x, sx:sum x, sz:sum z, szx:sum z*x, syc:sum yc, szyc:sum z*yc, sys:sum ys, szys:sum z*ys from t}
+
 / Size of the gap, and how often it's bigger than the cross's half-spread.
 / Also sums for the lag-1 autocorrelation of one-step returns of the quoted
 / and synthetic mids: if one of them reverses more (quote noise bouncing
@@ -78,10 +88,11 @@
 / day in March showed the EURJPY gap almost never gets past 2bp, so they
 / were moved down. That's a choice made on Jan-Jun data, which is the half
 / used for picking settings, so the Jul-Dec test is still clean.
-.fx.cfg:`step`start`end`maxage`ks`ths`lats`holds!(
-  0D00:00:00.1;                   / 100ms grid, about the spacing of Dukascopy quotes
+.fx.cfg:`step`start`end`maxage`ivlag`ks`ths`lats`holds!(
+  0D00:00:00.1;                   / 100ms grid, finer than any pair updates (0.3-0.9s on average)
   0D07:00; 0D17:00;               / London open to New York lunchtime, UTC
   0D00:01;                        / stale-quote cut-off, same as the gap rule in checks.q
+  10;                             / instrument: the gap 10 steps (1s) earlier
   1 2 5 10 20 50 100 300 600;     / horizons in grid steps, 0.1s to 60s
   0.25 0.5 0.75 1 1.5f;           / taker thresholds, bps
   0 1 5 10;                       / latency: 0, 0.1, 0.5, 1s
@@ -92,9 +103,10 @@
   c:.fx.cfg;
   g:.fx.grid[d;tri;c`step;c`start;c`end;c`maxage];
   cl:([] k:c`ks),'.fx.closure[g] each c`ks;
+  iv:([] k:c`ks),'.fx.closureiv[g;;c`ivlag] each c`ks;
   p:([] th:c`ths) cross ([] l:c`lats) cross ([] h:c`holds);
   tk:p,'{[g;r] .fx.taker[g;r`th;r`l;r`h]}[g] each p;
-  `closure`gap`taker!(cl;.fx.gapstats g;tk)}
+  `closure`closureiv`gap`taker!(cl;iv;.fx.gapstats g;tk)}
 
 
 / ============ SPY: trades and the order book ============
